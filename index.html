@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin:0; background:#2b2b2b; color:#ddd; font-family:sans-serif; font-size:12px; }
+  canvas { display:block; width:300px; height:260px; }
+  #info { padding:4px 6px; color:#9c9; white-space:pre-wrap; }
+  #err { color:#f88; }
+</style>
+</head>
+<body>
+<canvas id="c" width="300" height="260"></canvas>
+<div id="info">mencoba WebGL2...</div>
+<script>
+(function () {
+  const info = document.getElementById("info");
+  const canvas = document.getElementById("c");
+  const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+  if (!gl) {
+    info.innerHTML = '<span id="err">WebGL tidak tersedia di WebView ini</span>';
+    return;
+  }
+  const isGL2 = (typeof WebGL2RenderingContext !== "undefined") && (gl instanceof WebGL2RenderingContext);
+  const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+  const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  info.textContent = "WebGL" + (isGL2 ? "2" : "1") + " OK\n" + renderer;
+
+  const vs = `
+    attribute vec2 aPos;
+    attribute vec3 aCol;
+    uniform float uAng;
+    varying vec3 vCol;
+    void main() {
+      float c = cos(uAng), s = sin(uAng);
+      vec2 p = vec2(c * aPos.x - s * aPos.y, s * aPos.x + c * aPos.y);
+      gl_Position = vec4(p * 0.6, 0.0, 1.0);
+      vCol = aCol;
+    }`;
+  const fs = `
+    precision mediump float;
+    varying vec3 vCol;
+    void main() { gl_FragColor = vec4(vCol, 1.0); }`;
+
+  function sh(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  // segitiga warna-warni
+  const data = new Float32Array([
+     0.0,  1.0,  1, 0.2, 0.2,
+    -1.0, -1.0,  0.2, 1, 0.2,
+     1.0, -1.0,  0.2, 0.4, 1
+  ]);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(prog, "aPos");
+  const aCol = gl.getAttribLocation(prog, "aCol");
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 20, 0);
+  gl.enableVertexAttribArray(aCol);
+  gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 20, 8);
+  const uAng = gl.getUniformLocation(prog, "uAng");
+
+  let ang = 0, frames = 0, t0 = performance.now();
+  function frame(now) {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.17, 0.17, 0.17, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uAng, ang);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    ang += 0.02;
+    frames++;
+    if (now - t0 >= 1000) {
+      info.textContent = (isGL2 ? "WebGL2" : "WebGL1") + " | " + frames + " fps\n" + renderer;
+      frames = 0; t0 = now;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
