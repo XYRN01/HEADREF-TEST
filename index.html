@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html, body { margin:0; background:#2b2b2b; color:#ddd; font-family:sans-serif; font-size:10px; }
+  html, body { margin:0; background:#2b2b2b; color:#ddd; font-family:sans-serif; font-size:10px; overflow:hidden; height:100%; }
   #wrap { width:300px; margin:0 auto; }
-  canvas { display:block; width:300px; height:300px; cursor:grab; touch-action:none; }
-  #info { text-align:center; height:12px; color:#777; font-size:9px; }
-  .row { display:flex; gap:3px; margin:3px 6px 0; }
-  .lbl { padding:5px 6px 0; color:#aaa; }
-  button { flex:1 1 0; min-width:0; background:#3a3a3a; color:#ddd; border:none; border-radius:2px; padding:4px 0; font-size:10px; white-space:nowrap; overflow:hidden; cursor:pointer; }
+  canvas { display:block; width:240px; height:240px; margin:0 auto; cursor:grab; touch-action:none; }
+  #info { text-align:center; height:11px; color:#777; font-size:9px; overflow:hidden; }
+  .row { display:flex; gap:3px; margin:2px 6px 0; }
+  .lbl { padding:3px 6px 0; color:#aaa; line-height:12px; }
+  button { flex:1 1 0; min-width:0; background:#3a3a3a; color:#ddd; border:none; border-radius:2px; padding:3px 0; font-size:10px; white-space:nowrap; overflow:hidden; cursor:pointer; }
   button:hover { background:#4a4a4a; }
   button.active { background:#6a6a6a; }
-  .sl { display:flex; align-items:center; gap:4px; padding:2px 6px; }
+  .sl { display:flex; align-items:center; gap:4px; padding:1px 6px; }
   .sl .name { width:60px; white-space:nowrap; }
   .sl input { flex:1; min-width:0; }
   .sl .val { width:38px; text-align:right; color:#aaa; white-space:nowrap; }
@@ -24,6 +24,9 @@
   <canvas id="c" width="300" height="300"></canvas>
   <div id="info">memuat model...</div>
 
+  <div class="row">
+    <button id="mod-pria">Pria</button><button id="mod-wanita">Wanita</button>
+  </div>
   <div class="row">
     <button id="view-reset">Reset</button><button id="view-depan">Depan</button><button id="view-kiri">Kiri</button>
   </div>
@@ -46,7 +49,7 @@
     <button id="sel-0">Lampu 1</button><button id="sel-1">Lampu 2</button><button id="sel-2">Lampu 3</button>
   </div>
 
-  <div class="sl" style="margin-top:4px"><span class="name">Horizontal</span><input id="sl-h" type="range" min="-180" max="180" step="1"><span class="val" id="val-h"></span></div>
+  <div class="sl" style="margin-top:2px"><span class="name">Horizontal</span><input id="sl-h" type="range" min="-180" max="180" step="1"><span class="val" id="val-h"></span></div>
   <div class="sl"><span class="name">Vertikal</span><input id="sl-v" type="range" min="-90" max="90" step="1"><span class="val" id="val-v"></span></div>
   <div class="sl"><span class="name">Intensitas</span><input id="sl-i" type="range" min="0" max="100" step="1"><span class="val" id="val-i"></span></div>
   <div class="sl"><span class="name">Ambient</span><input id="sl-a" type="range" min="0" max="100" step="1"><span class="val" id="val-a"></span></div>
@@ -84,7 +87,7 @@
   const info = document.getElementById("info");
   const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(300, 300, false);
+  renderer.setSize(240, 240, false);
   renderer.setClearColor(0x2b2b2b, 1);
 
   const scene = new THREE.Scene();
@@ -130,28 +133,50 @@
   }
 
   // ----- memuat model -----
-  fetch("headmodel.json")
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(d.v, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(d.n, 3));
-      geo.setIndex(d.f);
-      const mat = new THREE.MeshLambertMaterial({ color: 0xe2bea0 });
-      mesh = new THREE.Mesh(geo, mat);
-      head.add(mesh);
-      updateRotation();
-      updateLights();
-      // info renderer
-      const gl = renderer.getContext();
-      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-      const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "GPU";
-      info.textContent = "WebGL2 | " + gpu;
-      draw();
-    })
-    .catch(function (e) {
-      info.textContent = "gagal memuat model: " + e.message;
-    });
+  const MODELS = { pria: "headmodel.json", wanita: "headmodel_female.json" };
+  let currentMesh = null;
+  let gpuName = "";
+  const gl0 = renderer.getContext();
+  const dbg0 = gl0.getExtension("WEBGL_debug_renderer_info");
+  gpuName = dbg0 ? gl0.getParameter(dbg0.UNMASKED_RENDERER_WEBGL) : "GPU";
+
+  function setModelButtons(name) {
+    document.getElementById("mod-pria").classList.toggle("active", name === "pria");
+    document.getElementById("mod-wanita").classList.toggle("active", name === "wanita");
+  }
+
+  function loadModel(name) {
+    info.textContent = "memuat model " + name + "...";
+    setModelButtons(name);
+    fetch(MODELS[name])
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.Float32BufferAttribute(d.v, 3));
+        geo.setAttribute("normal", new THREE.Float32BufferAttribute(d.n, 3));
+        geo.setIndex(d.f);
+        const mat = new THREE.MeshLambertMaterial({ color: 0xe2bea0 });
+        const mesh = new THREE.Mesh(geo, mat);
+        if (currentMesh) {
+          head.remove(currentMesh);
+          currentMesh.geometry.dispose();
+          currentMesh.material.dispose();
+        }
+        currentMesh = mesh;
+        head.add(mesh);
+        updateRotation();
+        updateLights();
+        info.textContent = "WebGL2 | " + gpuName;
+        draw();
+      })
+      .catch(function (e) {
+        info.textContent = "gagal memuat model: " + e.message;
+      });
+  }
+
+  document.getElementById("mod-pria").addEventListener("click", function () { loadModel("pria"); });
+  document.getElementById("mod-wanita").addEventListener("click", function () { loadModel("wanita"); });
+  loadModel("pria");
 
   // ----- drag putar -----
   let dragging = false, lastX = 0, lastY = 0, activePointer = null;
