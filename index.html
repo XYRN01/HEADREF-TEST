@@ -4,90 +4,244 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html, body { margin:0; background:#2b2b2b; color:#ddd; font-family:sans-serif; font-size:12px; }
-  canvas { display:block; width:300px; height:260px; }
-  #info { padding:4px 6px; color:#9c9; white-space:pre-wrap; }
-  #err { color:#f88; }
+  html, body { margin:0; background:#2b2b2b; color:#ddd; font-family:sans-serif; font-size:10px; }
+  #wrap { width:300px; margin:0 auto; }
+  canvas { display:block; width:300px; height:300px; cursor:grab; touch-action:none; }
+  #info { text-align:center; height:12px; color:#777; font-size:9px; }
+  .row { display:flex; gap:3px; margin:3px 6px 0; }
+  .lbl { padding:5px 6px 0; color:#aaa; }
+  button { flex:1 1 0; min-width:0; background:#3a3a3a; color:#ddd; border:none; border-radius:2px; padding:4px 0; font-size:10px; white-space:nowrap; overflow:hidden; cursor:pointer; }
+  button:hover { background:#4a4a4a; }
+  button.active { background:#6a6a6a; }
+  .sl { display:flex; align-items:center; gap:4px; padding:2px 6px; }
+  .sl .name { width:60px; white-space:nowrap; }
+  .sl input { flex:1; min-width:0; }
+  .sl .val { width:38px; text-align:right; color:#aaa; white-space:nowrap; }
 </style>
 </head>
 <body>
-<canvas id="c" width="300" height="260"></canvas>
-<div id="info">mencoba WebGL2...</div>
+<div id="wrap">
+  <canvas id="c" width="300" height="300"></canvas>
+  <div id="info">memuat model...</div>
+
+  <div class="row">
+    <button id="view-reset">Reset</button><button id="view-depan">Depan</button><button id="view-kiri">Kiri</button>
+  </div>
+  <div class="row">
+    <button id="view-kanan">Kanan</button><button id="view-atas">Atas</button><button id="view-bawah">Bawah</button>
+  </div>
+
+  <div class="lbl">Preset pencahayaan</div>
+  <div class="row">
+    <button id="pre-sisi">Sisi</button><button id="pre-atas">Atas</button><button id="pre-mendung">Mendung</button><button id="pre-sinematik">Sinematik</button>
+  </div>
+
+  <div class="lbl">Jumlah cahaya</div>
+  <div class="row">
+    <button id="count-1">1</button><button id="count-2">2</button><button id="count-3">3</button>
+  </div>
+
+  <div class="lbl">Atur lampu</div>
+  <div class="row">
+    <button id="sel-0">Lampu 1</button><button id="sel-1">Lampu 2</button><button id="sel-2">Lampu 3</button>
+  </div>
+
+  <div class="sl" style="margin-top:4px"><span class="name">Horizontal</span><input id="sl-h" type="range" min="-180" max="180" step="1"><span class="val" id="val-h"></span></div>
+  <div class="sl"><span class="name">Vertikal</span><input id="sl-v" type="range" min="-90" max="90" step="1"><span class="val" id="val-v"></span></div>
+  <div class="sl"><span class="name">Intensitas</span><input id="sl-i" type="range" min="0" max="100" step="1"><span class="val" id="val-i"></span></div>
+  <div class="sl"><span class="name">Ambient</span><input id="sl-a" type="range" min="0" max="100" step="1"><span class="val" id="val-a"></span></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function () {
-  const info = document.getElementById("info");
+  // ----- keadaan -----
+  const LIGHTS = [
+    { h: -32, v: 37, i: 1.0 },
+    { h: 110, v: 12, i: 0.4 },
+    { h: 0,   v: 70, i: 0.3 }
+  ];
+  let lightCount = 1, selLight = 0, ambient = 0.22;
+  let yaw = 0.4, pitch = 0.0;
+
+  const PRESETS = {
+    sisi:      { count: 1, ambient: 0.08, lights: [{ h: -80, v: 15, i: 1.0 }] },
+    atas:      { count: 1, ambient: 0.20, lights: [{ h: 0,   v: 80, i: 0.9 }] },
+    mendung:   { count: 2, ambient: 0.50, lights: [{ h: -30, v: 60, i: 0.45 }, { h: 30, v: 60, i: 0.45 }] },
+    sinematik: { count: 2, ambient: 0.12, lights: [{ h: -45, v: 30, i: 1.0 }, { h: 120, v: 20, i: 0.5 }] }
+  };
+  const VIEWS = {
+    reset: { yaw: 0.4,  pitch: 0.0 },
+    depan: { yaw: 0.0,  pitch: 0.0 },
+    kiri:  { yaw: -1.1, pitch: 0.0 },
+    kanan: { yaw: 1.1,  pitch: 0.0 },
+    atas:  { yaw: 0.0,  pitch: -0.5 },
+    bawah: { yaw: 0.0,  pitch: 0.5 }
+  };
+
+  // ----- three.js -----
   const canvas = document.getElementById("c");
-  const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
-  if (!gl) {
-    info.innerHTML = '<span id="err">WebGL tidak tersedia di WebView ini</span>';
-    return;
+  const info = document.getElementById("info");
+  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(300, 300, false);
+  renderer.setClearColor(0x2b2b2b, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  camera.position.set(0, 0, 3.6);
+  camera.lookAt(0, 0, 0);
+
+  const amb = new THREE.AmbientLight(0xffffff, ambient);
+  scene.add(amb);
+  const dirs = [0, 1, 2].map(() => {
+    const d = new THREE.DirectionalLight(0xffffff, 0);
+    scene.add(d);
+    return d;
+  });
+
+  const head = new THREE.Group();
+  head.rotation.order = "XYZ";
+  scene.add(head);
+  let mesh = null;
+
+  function lightVec(L) {
+    const a = L.h * Math.PI / 180, e = L.v * Math.PI / 180;
+    return [Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)];
   }
-  const isGL2 = (typeof WebGL2RenderingContext !== "undefined") && (gl instanceof WebGL2RenderingContext);
-  const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-  const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-  info.textContent = "WebGL" + (isGL2 ? "2" : "1") + " OK\n" + renderer;
 
-  const vs = `
-    attribute vec2 aPos;
-    attribute vec3 aCol;
-    uniform float uAng;
-    varying vec3 vCol;
-    void main() {
-      float c = cos(uAng), s = sin(uAng);
-      vec2 p = vec2(c * aPos.x - s * aPos.y, s * aPos.x + c * aPos.y);
-      gl_Position = vec4(p * 0.6, 0.0, 1.0);
-      vCol = aCol;
-    }`;
-  const fs = `
-    precision mediump float;
-    varying vec3 vCol;
-    void main() { gl_FragColor = vec4(vCol, 1.0); }`;
-
-  function sh(type, src) {
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src); gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
-    return s;
+  function updateRotation() {
+    head.rotation.set(-pitch, yaw, 0, "XYZ");
   }
-  const prog = gl.createProgram();
-  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
-  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
-  gl.linkProgram(prog);
-  gl.useProgram(prog);
 
-  // segitiga warna-warni
-  const data = new Float32Array([
-     0.0,  1.0,  1, 0.2, 0.2,
-    -1.0, -1.0,  0.2, 1, 0.2,
-     1.0, -1.0,  0.2, 0.4, 1
-  ]);
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  const aPos = gl.getAttribLocation(prog, "aPos");
-  const aCol = gl.getAttribLocation(prog, "aCol");
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 20, 0);
-  gl.enableVertexAttribArray(aCol);
-  gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 20, 8);
-  const uAng = gl.getUniformLocation(prog, "uAng");
-
-  let ang = 0, frames = 0, t0 = performance.now();
-  function frame(now) {
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clearColor(0.17, 0.17, 0.17, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.uniform1f(uAng, ang);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    ang += 0.02;
-    frames++;
-    if (now - t0 >= 1000) {
-      info.textContent = (isGL2 ? "WebGL2" : "WebGL1") + " | " + frames + " fps\n" + renderer;
-      frames = 0; t0 = now;
+  function updateLights() {
+    amb.intensity = ambient;
+    for (let k = 0; k < 3; k++) {
+      const L = LIGHTS[k];
+      const v = lightVec(L);
+      dirs[k].position.set(v[0] * 5, v[1] * 5, v[2] * 5);
+      dirs[k].intensity = (k < lightCount) ? L.i * (1 - ambient) : 0;
     }
-    requestAnimationFrame(frame);
+    draw();
   }
-  requestAnimationFrame(frame);
+
+  function draw() {
+    renderer.render(scene, camera);
+  }
+
+  // ----- memuat model -----
+  fetch("headmodel.json")
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(d.v, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(d.n, 3));
+      geo.setIndex(d.f);
+      const mat = new THREE.MeshLambertMaterial({ color: 0xe2bea0 });
+      mesh = new THREE.Mesh(geo, mat);
+      head.add(mesh);
+      updateRotation();
+      updateLights();
+      // info renderer
+      const gl = renderer.getContext();
+      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+      const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "GPU";
+      info.textContent = "WebGL2 | " + gpu;
+      draw();
+    })
+    .catch(function (e) {
+      info.textContent = "gagal memuat model: " + e.message;
+    });
+
+  // ----- drag putar -----
+  let dragging = false, lastX = 0, lastY = 0, activePointer = null;
+  canvas.addEventListener("pointerdown", function (e) {
+    dragging = true; activePointer = e.pointerId;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = "grabbing";
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!dragging || e.pointerId !== activePointer) return;
+    yaw += (e.clientX - lastX) * 0.01;
+    pitch -= (e.clientY - lastY) * 0.01;
+    pitch = Math.max(-1.2, Math.min(1.2, pitch));
+    lastX = e.clientX; lastY = e.clientY;
+    updateRotation();
+    draw();
+  });
+  function endDrag(e) {
+    if (e && e.pointerId !== activePointer) return;
+    dragging = false; activePointer = null;
+    canvas.style.cursor = "grab";
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  // ----- tombol view -----
+  function setView(name) {
+    const v = VIEWS[name];
+    yaw = v.yaw; pitch = v.pitch;
+    updateRotation(); draw();
+  }
+  ["reset", "depan", "kiri", "kanan", "atas", "bawah"].forEach(function (n) {
+    document.getElementById("view-" + n).addEventListener("click", function () { setView(n); });
+  });
+
+  // ----- UI lampu -----
+  const elCount = [1, 2, 3].map(function (n) { return document.getElementById("count-" + n); });
+  const elSel = [0, 1, 2].map(function (n) { return document.getElementById("sel-" + n); });
+  const PRESET_NAMES = ["sisi", "atas", "mendung", "sinematik"];
+  const elPre = PRESET_NAMES.map(function (n) { return document.getElementById("pre-" + n); });
+  const sH = document.getElementById("sl-h"), sV = document.getElementById("sl-v");
+  const sI = document.getElementById("sl-i"), sA = document.getElementById("sl-a");
+  const vH = document.getElementById("val-h"), vV = document.getElementById("val-v");
+  const vI = document.getElementById("val-i"), vA = document.getElementById("val-a");
+
+  function syncUI() {
+    elCount.forEach(function (b, idx) { b.classList.toggle("active", idx + 1 === lightCount); });
+    elSel.forEach(function (b, idx) {
+      b.style.display = idx < lightCount ? "" : "none";
+      b.classList.toggle("active", idx === selLight);
+    });
+    const L = LIGHTS[selLight];
+    sH.value = L.h; vH.textContent = L.h + "°";
+    sV.value = L.v; vV.textContent = L.v + "°";
+    sI.value = Math.round(L.i * 100); vI.textContent = Math.round(L.i * 100) + "%";
+    sA.value = Math.round(ambient * 100); vA.textContent = Math.round(ambient * 100) + "%";
+  }
+
+  elCount.forEach(function (b, idx) {
+    b.addEventListener("click", function () {
+      lightCount = idx + 1;
+      if (selLight >= lightCount) selLight = 0;
+      syncUI(); updateLights();
+    });
+  });
+  elSel.forEach(function (b, idx) {
+    b.addEventListener("click", function () { selLight = idx; syncUI(); });
+  });
+  sH.addEventListener("input", function () { LIGHTS[selLight].h = Number(sH.value); syncUI(); updateLights(); });
+  sV.addEventListener("input", function () { LIGHTS[selLight].v = Number(sV.value); syncUI(); updateLights(); });
+  sI.addEventListener("input", function () { LIGHTS[selLight].i = Number(sI.value) / 100; syncUI(); updateLights(); });
+  sA.addEventListener("input", function () { ambient = Number(sA.value) / 100; syncUI(); updateLights(); });
+
+  function applyPreset(name) {
+    const p = PRESETS[name];
+    lightCount = p.count;
+    p.lights.forEach(function (L, idx) {
+      LIGHTS[idx].h = L.h; LIGHTS[idx].v = L.v; LIGHTS[idx].i = L.i;
+    });
+    ambient = p.ambient;
+    if (selLight >= lightCount) selLight = 0;
+    elPre.forEach(function (b, idx) { b.classList.toggle("active", PRESET_NAMES[idx] === name); });
+    syncUI(); updateLights();
+  }
+  PRESET_NAMES.forEach(function (n) {
+    document.getElementById("pre-" + n).addEventListener("click", function () { applyPreset(n); });
+  });
+
+  syncUI();
 })();
 </script>
 </body>
